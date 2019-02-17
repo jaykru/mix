@@ -1,3 +1,4 @@
+Require Import Omega.
 (* Our formalization uses bits to reflect actual computing hardware,
 but one could define a digits type in lieu of bits and redefine the
 below bytes data-type to use that digits type and the rest of the
@@ -72,35 +73,24 @@ Fixpoint fin (n : nat) : Type :=
   | S m => option (fin m)
   end.
 
-
-Set Nested Proofs Allowed.
-Definition fin_zero {n : nat} {H : n > 0} : fin (n).
-  induction n.
-  Lemma zgtz : 0 > 0 -> False.
-    intro.
-    inversion H.
-  Qed.
-  exact (zgtz H).
-
-  inversion H.
-  fold fin in *.
-  destruct H.
-  
-  case n.
-  inversion H.
-  rewrite <-H0 in H.
-
-  unfold ">" in H.
-  
-
-Fixpoint fin_m {n : nat} (m : nat) {H : m <= S n} {struct m} : fin (S n) :=
-  
-
-
-Compute (fin_m 400 : fin 4000).
+(* This is hard to define, let's just assume we can use it for now.
+   With a proof that n > 0, m < n, we get back the mth inhabitant of
+   the nth fintype. *)
+Hint Resolve Some.
+Hint Resolve None.
+Fixpoint fin_m_n {n : nat} (m : nat) (H: n > 0) (H': m < n) : fin n.
+Admitted.
 
 (* Each MIX machine has a 4000-word of memory. We represent this in
 Coq as a finite map from a type with 4000 inhabitants to words. *)
 Definition memory : Type := fin 4000 -> word.
 
-Notation " M [n] " := M (fin n).
+Lemma memgtz : 4000 > 0.
+  omega.
+Qed.
+
+
+Definition get_nth_cell (M : memory) (n : nat) {H : n < 4000} : word :=
+  M (fin_m_n n memgtz H).
+
+Notation " M [ n ] pf " := (get_nth_cell M n) (at level 50).
