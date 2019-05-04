@@ -2,48 +2,90 @@ Require Import Finite.
 Require Import Omega.
 
 Module Type Word.
-  Context (size : {n : nat | n > 0}).
+  Context (width : {n : nat | n > 0}).
   Context (word : Type).
-  Context (signed : word -> Z).
-  Context (unsigned : word -> Z).
-  Context (fromZ : Z -> word).
+  Context (signedFromWord : word -> Z).
+  Context (unsignedFromWord : word -> Z).
+  Context (wordFromZ : Z -> word).
 End Word.
 
-Module MixWord : Word.
-  Definition size : {n : nat | n > 0}. refine (exist _ 64 _); omega. Defined.
-  Definition word : Type := Z.
+Module Type Short.
+  Context (width : {n : nat | n > 0}).
+  Context (short : Type).
+  Context (signedFromShort : short -> Z).
+  Context (unsignedFromShort : short -> Z).
+  Context (shortFromZ : Z -> short).
+End Short.
+
+Module MixShort : Short.
+  (* 6 bits per byte * 2 bytes / short = 12 bits / short *)
+  Definition width : {n : nat | n > 0}. refine (exist _ 12 _); omega. Defined.
+  Definition short : Type := Z.
   Open Scope Z_scope.
-  Let wrap := let (w, _) := size in Z.of_nat w.
+  Let width' := let (w, _) := width in Z.of_nat w.
+  Let wrap := 2 ^ width'.
+  
   (* Overflow doesn't change sign. Actually, Knuth is kind of vague
   about the semantics of overflow in TAOCP, I suppose leaving it as
   undefined behavior. *)
-  Definition signed (w : word) : Z :=
+  Definition signedFromShort (s : short) : Z :=
+    match s with
+    | Z0 => s
+    | Zpos x => s mod wrap
+    | Zneg x => - ((Zpos x) mod wrap)
+    end.
+
+  Definition unsignedFromShort (s : short) : Z :=
+    match s with
+    | Z0 => s
+    | Zpos x => s mod wrap
+    | Zneg x => (Zpos x) mod wrap
+    end.
+
+  Definition shortFromZ (z : Z) : short := id z.
+End MixShort.
+
+Module MixWord : Word.
+  (* 6 bits per byte * 5 bytes / word = 30 bits / word *)
+  Definition width : {n : nat | n > 0}. refine (exist _ 30 _); omega. Defined.
+  Definition word : Type := Z.
+  Open Scope Z_scope.
+  Let width' := let (w, _) := width in Z.of_nat w.
+  Let wrap := 2 ^ width'.
+  (* Overflow doesn't change sign. Actually, Knuth is kind of vague
+  about the semantics of overflow in TAOCP, I suppose leaving it as
+  undefined behavior. *)
+  Definition signedFromWord (w : word) : Z :=
     match w with
     | Z0 => w
     | Zpos x => w mod wrap
     | Zneg x => - ((Zpos x) mod wrap)
     end.
 
-  Definition unsigned (w : word) : Z :=
+  Definition unsignedFromWord (w : word) : Z :=
     match w with
     | Z0 => w
     | Zpos x => w mod wrap
     | Zneg x => (Zpos x) mod wrap
     end.
 
-  Definition fromZ (z : Z) : word := id z.
+  Definition wordFromZ (z : Z) : word := id z.
 End MixWord.
 
-Definition zero_word := MixWord.fromZ 0.
-  
-(* (* Our formalization uses bits to reflect actual computing hardware, *)
+Import MixWord.
+Import MixShort.
+
+Definition shortToWord s := wordFromZ (signedFromShort s).
+Global Coercion shortToWord : short >-> word.
+
+(* Our formalization uses bits to reflect actual computing hardware, *)
 (*    but one could define a digits type in lieu of bits and redefine the *)
 (*    below bytes data-type to use that digits type and the rest of the *)
 (*    formalization (and critically all well-written MIX programs!) *)
-(*    should be fine. *) *)
-(*   Inductive bit : Type := *)
-(*   | one : bit *)
-(*   | zero : bit. *)
+(*    should be fine. *)
+  Inductive bit : Type :=
+  | one : bit
+  | zero : bit.
 
 (* (* Bytes are comprised of 6 bits. They can therefore hold values from *)
 (*    0 to 99, but we assume that bytes only hold 64 distinct values from *)
