@@ -1,13 +1,97 @@
 Require Import Finite.
 Require Import Omega.
 
+Inductive field : Type := Zero | One | Two | Three | Four | Five.
+Definition fieldspec : Type := field * field.
+
+Notation " 0 " := Zero : fieldspec_scope.
+Notation " 1 " := One : fieldspec_scope.
+Notation " 2 " := Two : fieldspec_scope.
+Notation " 3 " := Three : fieldspec_scope.
+Notation " 4 " := Four : fieldspec_scope.
+Notation " 5 " := Five : fieldspec_scope.
+
+Delimit Scope fieldspec_scope with fieldspec.
+
+Module Type Byte.
+  (* Number of bits per byte *)
+  Context (width : {n : nat | n > 0}).
+  Context (byte : Type).
+  Context (zFromByte : byte -> Z).
+  Context (byteFromZ : Z -> byte).
+End Byte.
+
+Module MixByte : Byte.
+  (* Knuth uses 6-bit bytes and we do as well. All good MIX programs
+  should work on any MIX computer with at least 6 bits
+  per byte. *)
+    Definition width : {n : nat | n > 0}. refine (exist _ 6 _); abstract omega. Defined.
+  Open Scope Z_scope.
+  Definition byte := Z.
+  Let wrap := let (w,_) := width in (2 ^ (Z.of_nat w)).
+  Definition zFromByte (b : byte) := (b mod wrap).
+  Definition byteFromZ (z : Z) := @id Z z.
+End MixByte.
+
+Inductive sign : Type := plus | minus.
+
 Module Type Word.
+  (* Number of bytes per word *)
   Context (width : {n : nat | n > 0}).
   Context (word : Type).
   Context (signedFromWord : word -> Z).
   Context (unsignedFromWord : word -> Z).
+  Context (fieldFromWord : word -> fieldspec -> Z).
   Context (wordFromZ : Z -> word).
 End Word.
+
+Ltac easy_subset n :=
+  refine (exist _ n _); try omega; auto.
+
+Module MixWord : Word.
+  Definition width : {n : nat | n > 0}. easy_subset 5. Defined.
+  Open Scope Z_scope.
+  Let byte := MixByte.byte.
+  Inductive word : Type :=
+    | Word : sign -> byte -> byte -> byte -> byte -> byte -> word.
+  Let zify := MixByte.zFromByte.
+
+  Import MixByte.
+  Goal (MixByte.zFromByte (MixByte.byteFromZ 0) = 0).
+    simpl.
+    compute.
+  
+  Definition signedFromWord (w : word) :=
+    match w with
+    | Word s b5 b4 b3 b2 b1 =>
+      let (z5,z4,z3,z2,z1) := (MixByte.zFromByte b5, MixByte.zFromByte b4, MixByte.zFromByte b3, MixByte.zFromByte b2, MixByte.zFromByte b1) in
+      let z5' := Z.shiftl z5 (6 * 4) in
+      let z4' := Z.shiftl z4 (6 * 3) in
+      let z3' := Z.shiftl z3 (6 * 2) in
+      let z2' := Z.shiftl z2 6 in
+      let sum := z1 + z2' + z3' + z4' + z5' in
+      match s with
+      | plus => sum
+      | minus => - sum
+      end
+    end.
+
+  Let zero_byte : byte := MixByte.byteFromZ 0.
+
+  Goal (signedFromWord (Word minus zero_byte zero_byte zero_byte zero_byte (MixByte.byteFromZ 5))) = -5.
+    unfold zero_byte.
+    simpl.
+    cbv delta. 
+    simpl.
+    unfold zify.
+    vm_compute.
+
+  Eval vm_compute in (signedFromWord (Word minus zero_byte zero_byte zero_byte zero_byte (MixByte.byteFromZ 5))).
+  (* fuck. I hate Coq. *)
+
+      
+
+             
 
 Module Type Short.
   Context (width : {n : nat | n > 0}).

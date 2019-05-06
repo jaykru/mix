@@ -185,23 +185,39 @@ Instance etaMachine : Settable _ := settable! mkMachine <r; f; m>.
 Import RecordSetNotations.
 
 
+Definition bits := list bit.
+Definition bitsFromZ (z : Z) (width : nat) : option (sign * bits) :=
+  let sign := match z with
+              | Z0 => true
+              | Zpos _ => true
+              | Zneg _ => false
+              end in
+  let fix helper (left : Z) (w : nat) (acc : bits) :=
+      match w with
+      | 0 => 
+      | S w' => 
+  
 
-Search "set".
 
-Check (fun (r' : registers -> registers) (m : machine) => set r r' m).
 
-Search "setReg".
-Search "word".
 Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : machine :=
   let (I, _) := I in 
   match I with
   | Load sign rDest from maybeIndex maybeFieldspec =>
-    let fromVal := signedFromWord (get_nth_cell (m M) from)
-    in let newReg := setReg (r M) rDest fromVal
-       in
-       M <| r := newReg |>
-  | _ => M
-  end.
+    match (maybeIndex, maybeFieldspec) with
+    | (Some(I), Some(F)) =>
+      (* offset from by the value contained in I *)
+      let offset := indexToNat (getReg I) in
+    | (Some(I), None) => 
+    | (None, Some(F)) =>
+    | (None, None) => 
+      let fromVal := signedFromWord (get_nth_cell (m M) from)
+      in let newReg := setReg (r M) rDest fromVal
+         in M <| r := newReg |>
+    end.
+
+
+Compute (instDenote zeroMachine (exist _ Hlt _)).
 
     match (maybeIndex, maybeFieldspec) with
     | (Some(I), Some(F)) =>
