@@ -1,5 +1,7 @@
 Require Import Finite.
 Require Import Omega.
+Require Import List.
+Import ListNotations.
 
 Inductive field : Type := Zero | One | Two | Three | Four | Five.
 Definition fieldspec : Type := field * field.
@@ -11,33 +13,32 @@ Notation " 3 " := Three : fieldspec_scope.
 Notation " 4 " := Four : fieldspec_scope.
 Notation " 5 " := Five : fieldspec_scope.
 
+Definition fieldToNat (f : field) : nat :=
+  match f with
+  | Zero => 0
+  | One => 1
+  | Two => 2
+  | Three => 3
+  | Four => 4
+  | Five => 5
+  end.
+
+Coercion fieldToNat : field >-> nat.
+Import Nat.
+Compute (compare Zero One).
+
+
 Delimit Scope fieldspec_scope with fieldspec.
-
-Module Type Byte.
-  (* Number of bits per byte *)
-  Context (width : {n : nat | n > 0}).
-  Context (byte : Type).
-  Context (zFromByte : byte -> Z).
-  Context (byteFromZ : Z -> byte).
-End Byte.
-
-Module MixByte : Byte.
-  (* Knuth uses 6-bit bytes and we do as well. All good MIX programs
-  should work on any MIX computer with at least 6 bits
-  per byte. *)
-    Definition width : {n : nat | n > 0}. refine (exist _ 6 _); abstract omega. Defined.
-  Open Scope Z_scope.
-  Definition byte := Z.
-  Let wrap := let (w,_) := width in (2 ^ (Z.of_nat w)).
-  Definition zFromByte (b : byte) := (b mod wrap).
-  Definition byteFromZ (z : Z) := @id Z z.
-End MixByte.
 
 Inductive sign : Type := plus | minus.
 
 Module Type Word.
+  (* Number of bits per byte *)
+  Context (byteWidth : {n : nat | n > 0}).
+  
   (* Number of bytes per word *)
-  Context (width : {n : nat | n > 0}).
+  Context (wordWidth : {n : nat | n > 0}).
+  
   Context (word : Type).
   Context (signedFromWord : word -> Z).
   Context (unsignedFromWord : word -> Z).
@@ -49,173 +50,235 @@ Ltac easy_subset n :=
   refine (exist _ n _); try omega; auto.
 
 Module MixWord : Word.
-  Definition width : {n : nat | n > 0}. easy_subset 5. Defined.
-  Open Scope Z_scope.
-  Let byte := MixByte.byte.
-  Inductive word : Type :=
-    | Word : sign -> byte -> byte -> byte -> byte -> byte -> word.
-  Let zify := MixByte.zFromByte.
+  (* We stay faithful to Knuth with 6-bit bytes and 5-byte words. *)
+  Definition byteWidth : {n : nat | n > 0}. easy_subset 6. Defined.
+  Definition wordWidth : {n : nat | n > 0}. easy_subset 5. Defined.
+  Let byteWrap := let (bw, _) := byteWidth in
+                  (2 ^ (Z.of_nat bw))%Z.
+  Let wordWrap := let (bw,_) := byteWidth in
+              let (ww,_) := wordWidth in
+              let (b,w) := (Z.of_nat bw, Z.of_nat ww) in
+              (2 ^ (b*w))%Z.
 
-  Import MixByte.
-  Goal (MixByte.zFromByte (MixByte.byteFromZ 0) = 0).
-    simpl.
-    compute.
-  
-  Definition signedFromWord (w : word) :=
-    match w with
-    | Word s b5 b4 b3 b2 b1 =>
-      let (z5,z4,z3,z2,z1) := (MixByte.zFromByte b5, MixByte.zFromByte b4, MixByte.zFromByte b3, MixByte.zFromByte b2, MixByte.zFromByte b1) in
-      let z5' := Z.shiftl z5 (6 * 4) in
-      let z4' := Z.shiftl z4 (6 * 3) in
-      let z3' := Z.shiftl z3 (6 * 2) in
-      let z2' := Z.shiftl z2 6 in
-      let sum := z1 + z2' + z3' + z4' + z5' in
-      match s with
-      | plus => sum
-      | minus => - sum
-      end
-    end.
-
-  Let zero_byte : byte := MixByte.byteFromZ 0.
-
-  Goal (signedFromWord (Word minus zero_byte zero_byte zero_byte zero_byte (MixByte.byteFromZ 5))) = -5.
-    unfold zero_byte.
-    simpl.
-    cbv delta. 
-    simpl.
-    unfold zify.
-    vm_compute.
-
-  Eval vm_compute in (signedFromWord (Word minus zero_byte zero_byte zero_byte zero_byte (MixByte.byteFromZ 5))).
-  (* fuck. I hate Coq. *)
-
-      
-
-             
-
-Module Type Short.
-  Context (width : {n : nat | n > 0}).
-  Context (short : Type).
-  Context (signedFromShort : short -> Z).
-  Context (unsignedFromShort : short -> Z).
-  Context (shortFromZ : Z -> short).
-End Short.
-
-Module MixShort : Short.
-  (* 6 bits per byte * 2 bytes / short = 12 bits / short *)
-  Definition width : {n : nat | n > 0}. refine (exist _ 12 _); omega. Defined.
-  Definition short : Type := Z.
-  Open Scope Z_scope.
-  Let width' := let (w, _) := width in Z.of_nat w.
-  Let wrap := 2 ^ width'.
-  
-  (* Overflow doesn't change sign. Actually, Knuth is kind of vague
-  about the semantics of overflow in TAOCP, I suppose leaving it as
-  undefined behavior. *)
-  Definition signedFromShort (s : short) : Z :=
-    match s with
-    | Z0 => s
-    | Zpos x => s mod wrap
-    | Zneg x => - ((Zpos x) mod wrap)
-    end.
-
-  Definition unsignedFromShort (s : short) : Z :=
-    match s with
-    | Z0 => s
-    | Zpos x => s mod wrap
-    | Zneg x => (Zpos x) mod wrap
-    end.
-
-  Definition shortFromZ (z : Z) : short := id z.
-End MixShort.
-
-Module MixWord : Word.
-  (* 6 bits per byte * 5 bytes / word = 30 bits / word *)
-  Definition width : {n : nat | n > 0}. refine (exist _ 30 _); omega. Defined.
   Definition word : Type := Z.
-  Open Scope Z_scope.
-  Let width' := let (w, _) := width in Z.of_nat w.
-  Let wrap := 2 ^ width'.
   (* Overflow doesn't change sign. Actually, Knuth is kind of vague
   about the semantics of overflow in TAOCP, I suppose leaving it as
   undefined behavior. *)
   Definition signedFromWord (w : word) : Z :=
     match w with
     | Z0 => w
-    | Zpos x => w mod wrap
-    | Zneg x => - ((Zpos x) mod wrap)
+    | Zpos x => (w mod wordWrap)%Z
+    | Zneg x => (- ((Zpos x) mod wordWrap))%Z
     end.
 
   Definition unsignedFromWord (w : word) : Z :=
     match w with
     | Z0 => w
-    | Zpos x => w mod wrap
-    | Zneg x => (Zpos x) mod wrap
+    | Zpos x => (w mod wordWrap)%Z
+    | Zneg x => ((Zpos x) mod wordWrap)%Z
     end.
 
-  Definition wordFromZ (z : Z) : word := id z.
+  Let signOf (w : word) : sign :=
+    match w with
+      | Zneg _ => minus
+      | _ => plus
+    end.
+
+  Definition wordFromZ (z : Z) : word := z.
+
+  Let nthByte (w : word) (n : nat) : Z :=
+    let w' := unsignedFromWord w in
+    let fix do (left : word) (m : nat) :=
+        match m with
+        | O => (left mod byteWrap)%Z
+        | S m' => do (left / byteWrap)%Z m'
+        end
+    in do w' n.
+
+  Let bytesOf (w : word) : list Z :=
+    let w' := unsignedFromWord w in
+    let fix do (w : word) (n : nat) (acc : list Z) :=
+        match n with
+        | O => (w mod byteWrap)%Z :: acc
+        | S n' => do (w / byteWrap)%Z n' ((w mod byteWrap)%Z :: acc)
+        end
+    in do w' 5 [].
+
+  Let bytesToWord (bs : list Z) : word :=
+    let fix do (bs : list Z) (acc : Z) (n : Z) :=
+        match bs with
+        | b :: bs => do bs (acc + (b * (byteWrap ^ n)))%Z (n - 1)%Z
+        | [] => acc
+        end
+    in let n := Z.of_nat(length bs) in
+       do bs 0%Z (n-1)%Z.
+
+  Let slice {A} (l : list A) (L R : nat) : list A :=
+    (* slice the list l, yielding a list containing the elements l[i] for i \in [L-1, R) *)
+    let fix do (l : list A) (L R : nat) (acc : list A) :=
+        match l with
+        | l :: ls => 
+          match L with
+          | O =>
+            match R with
+            | O => List.rev acc
+            | S R' => do ls L R' (l :: acc)
+            end
+          | S L' => do ls L' R acc
+          end
+        | [] => List.rev acc
+        end
+    in
+    do l (L-1) R [].
+  
+  Definition fieldFromWord (w : word) (F : fieldspec) : word :=
+    let (L, R) := F in
+    match (R ?= L) with
+    | Gt =>
+      let (s,v) := (match L with
+                    (* the field includes the sign bit *)
+                    | Zero => (signOf w, unsignedFromWord w)
+                    (* the field includes'nt the sign bit *)
+                    | otherwise => (plus, unsignedFromWord w)
+                    end) in
+      (* Grab bytes L through R from the word w and treats them as a
+         word of their own with sign s, where the rightmost byte of the
+         selection occupying the rightmost position in the resulting
+         word *)
+      let bs := bytesOf w in
+      let fieldSlice := slice bs L (R + 1) in
+      let newWord := (unsignedFromWord (bytesToWord fieldSlice)) in 
+      match s with
+      | plus => newWord
+      | minus => (- newWord)%Z
+      end
+    | otherwise => 0%Z (* when requesting a field of width 0 or less, just return the trivial word. *)
+    end.
 End MixWord.
 
+Compute MixWord.unsignedFromWord (MixWord.wordFromZ  50%Z).
+
+Module Type Short.
+  (* Number of bits per byte *)
+  Context (byteWidth : {n : nat | n > 0}).
+  
+  (* Number of bytes per short *)
+  Context (shortWidth : {n : nat | n > 0}).
+  
+  Context (short : Type).
+  Context (signedFromShort : short -> Z).
+  Context (unsignedFromShort : short -> Z).
+  Context (fieldFromShort : short -> fieldspec -> Z).
+  Context (shortFromZ : Z -> short).
+End Short.
+
+Delimit Scope fieldspec_scope with F.
 Import MixWord.
-Import MixShort.
+Goal 50%Z = (MixWord.fieldFromWord (MixWord.wordFromZ 50) (0%F ,5%F)).
 
-Definition shortToWord s := wordFromZ (signedFromShort s).
-Global Coercion shortToWord : short >-> word.
 
-(* Our formalization uses bits to reflect actual computing hardware, *)
-(*    but one could define a digits type in lieu of bits and redefine the *)
-(*    below bytes data-type to use that digits type and the rest of the *)
-(*    formalization (and critically all well-written MIX programs!) *)
-(*    should be fine. *)
-  Inductive bit : Type :=
-  | one : bit
-  | zero : bit.
+Module MixShort : Short.
+  (* We stay faithful to Knuth with 6-bit bytes and 5-byte words. *)
+  Definition byteWidth : {n : nat | n > 0}. easy_subset 6. Defined.
+  Definition shortWidth : {n : nat | n > 0}. easy_subset 2. Defined.
+  Let byteWrap := let (bw, _) := byteWidth in
+                  (2 ^ (Z.of_nat bw))%Z.
+  Let shortWrap := let (bw,_) := byteWidth in
+              let (ww,_) := shortWidth in
+              let (b,w) := (Z.of_nat bw, Z.of_nat ww) in
+              (2 ^ (b*w))%Z.
 
-(* (* Bytes are comprised of 6 bits. They can therefore hold values from *)
-(*    0 to 99, but we assume that bytes only hold 64 distinct values from *)
-(*    (i.e. values from 0 to 63) *) *)
-(*   Definition byte : Type := bit * bit * bit * bit * bit * bit. *)
+  Definition short : Type := Z.
+  (* Overflow doesn't change sign. Actually, Knuth is kind of vague
+  about the semantics of overflow in TAOCP, I suppose leaving it as
+  undefined behavior. *)
+  Definition signedFromShort (s : short) : Z :=
+    match s with
+    | Z0 => s
+    | Zpos x => (s mod shortWrap)%Z
+    | Zneg x => (- ((Zpos x) mod shortWrap))%Z
+    end.
 
-(*   Definition byteToNat (B : byte) : nat := *)
-(*     match B with *)
-(*     | (b5,b4,b3,b2,b1,b0) => *)
-(*       (if b5 then 2 ^ 5 else 0) + *)
-(*       (if b4 then 2 ^ 4 else 0) + *)
-(*       (if b3 then 2 ^ 3 else 0) + *)
-(*       (if b2 then 2 ^ 2 else 0) + *)
-(*       (if b1 then 2 ^ 1 else 0) + *)
-(*       (if b0 then 2 ^ 0 else 0) *)
-(*     end. *)
+  Definition unsignedFromWord (w : word) : Z :=
+    match w with
+    | Z0 => w
+    | Zpos x => (w mod wordWrap)%Z
+    | Zneg x => ((Zpos x) mod wordWrap)%Z
+    end.
 
-(* Require Import Coq.Program.Wf. *)
-(* Program Fixpoint natToBits (n : nat) {wf lt n} : list bit := *)
-(*   match n with *)
-(*   | 0 => nil *)
-(*   | S n' => List.rev ((if (Nat.eq_dec (n mod 2) 0) then zero else one) :: natToBits (Nat.div2 n)) *)
-(*   end. *)
-(* Obligation 1. *)
-(* apply Nat.lt_div2. *)
-(* omega. *)
-(* Qed. *)
+  Let signOf (w : word) : sign :=
+    match w with
+      | Zneg _ => minus
+      | _ => plus
+    end.
 
-(* Import List.ListNotations. *)
-(* Open Scope list_scope. *)
-(* Compute natToBits 11. *)
+  Definition wordFromZ (z : Z) : word := z.
 
-(* Search "Z". *)
+  Let nthByte (w : word) (n : nat) : Z :=
+    let w' := unsignedFromWord w in
+    let fix do (left : word) (m : nat) :=
+        match m with
+        | O => (left mod byteWrap)%Z
+        | S m' => do (left / byteWrap)%Z m'
+        end
+    in do w' n.
 
-(* (* MIX words are comprised of a sign bit and 5 bytes *) *)
-(* Definition word : Type := sign * byte * byte * byte * byte * byte. *)
+  Let bytesOf (w : word) : list Z :=
+    let w' := unsignedFromWord w in
+    let fix do (w : word) (n : nat) (acc : list Z) :=
+        match n with
+        | O => (w mod byteWrap)%Z :: acc
+        | S n' => do (w / byteWrap)%Z n' ((w mod byteWrap)%Z :: acc)
+        end
+    in do w' 5 [].
 
-(* Definition nat_to_byte (n : {n : nat | n < 64}) : byte := fin_n_m 64 n. *)
-(* Definition byte_to_nat (b : byte) : {n : nat | n < 64} *)
+  Let bytesToWord (bs : list Z) : word :=
+    let fix do (bs : list Z) (acc : Z) (n : Z) :=
+        match bs with
+        | b :: bs => do bs (acc + (b * (byteWrap ^ n)))%Z (n - 1)%Z
+        | [] => acc
+        end
+    in let n := Z.of_nat(length bs) in
+       do bs 0%Z (n-1)%Z.
 
-(* Definition zero_byte : byte. *)
-(*   apply n_byte. *)
-(*   econstructor. *)
-(*   instantiate (1 := 0). *)
-(*   abstract omega. *)
-(* Defined. *)
-       
-(* (* Definition zero_byte : byte := (zero , zero , zero , zero , zero , zero). *) *)
-(* Definition zero_word : word := (plus , zero_byte , zero_byte , zero_byte , zero_byte , zero_byte). *)
+  Let slice {A} (l : list A) (L R : nat) : list A :=
+    (* slice the list l, yielding a list containing the elements l[i] for i \in [L-1, R) *)
+    let fix do (l : list A) (L R : nat) (acc : list A) :=
+        match l with
+        | l :: ls => 
+          match L with
+          | O =>
+            match R with
+            | O => List.rev acc
+            | S R' => do ls L R' (l :: acc)
+            end
+          | S L' => do ls L' R acc
+          end
+        | [] => List.rev acc
+        end
+    in
+    do l (L-1) R [].
+  
+  Definition fieldFromWord (w : word) (F : fieldspec) : word :=
+    let (L, R) := F in
+    match (R ?= L) with
+    | Gt =>
+      let (s,v) := (match L with
+                    (* the field includes the sign bit *)
+                    | Zero => (signOf w, unsignedFromWord w)
+                    (* the field includes'nt the sign bit *)
+                    | otherwise => (plus, unsignedFromWord w)
+                    end) in
+      (* Grab bytes L through R from the word w and treats them as a
+         word of their own with sign s, where the rightmost byte of the
+         selection occupying the rightmost position in the resulting
+         word *)
+      let bs := bytesOf w in
+      let fieldSlice := slice bs L (R + 1) in
+      let newWord := (unsignedFromWord (bytesToWord fieldSlice)) in 
+      match s with
+      | plus => newWord
+      | minus => (- newWord)%Z
+      end
+    | otherwise => 0%Z (* when requesting a field of width 0 or less, just return the trivial word. *)
+    end.
