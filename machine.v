@@ -3,7 +3,8 @@ Require Import Finite.
 From RecordUpdate Require Import RecordSet.
 Require Import Types.
 Require Import Registers.
-Import MixShort MixWord.
+
+Inductive bit : Type := zero | one.
 
 Record flags : Type := mkFlags 
                          {
@@ -21,7 +22,9 @@ Record flags : Type := mkFlags
 Definition zeroFlags : flags := {| comparison := Eq;
                                    overflow := zero; |}.
 
-Context (size : nat).
+
+(* In keeping with Knuth, we use a 4000-word memory *)
+Definition size : nat := 4000.
 Context (Hsizenontrivial : size > 0).
 
 Definition address : Type := {n : nat | n < size}.
@@ -30,43 +33,29 @@ Module Type Memory.
   Context (memory : Type).
   Context (zeroMemory : memory).
   Context (HMemNontrivial : size > 0).
-  Context (get_nth_cell : memory -> {n : nat | n < size} -> word).
-  Context (set_nth_cell : memory -> {n : nat | n < size} -> word -> memory).
+  Context (get_nth_cell : memory -> {n : nat | n < size} -> word5).
+  Context (set_nth_cell : memory -> {n : nat | n < size} -> word5 -> memory).
   Notation " M [ n ] " := (get_nth_cell M n) (at level 50).
 End Memory.
 
 Module MixMemory : Memory.
   (* Each MIX machine has a 4000-word memory. We represent this in
      Coq as a finite map from a type with 4000 inhabitants to words. *)
-  Definition memory := fin size -> word.
-  Let zero_word := wordFromZ 0.
+  Definition memory := fin size -> word5.
+  Let zero_word := of_Z5 0.
   Definition zeroMemory : memory := fun n => zero_word.
   Definition HMemNontrivial : size > 0.
     exact Hsizenontrivial.
   Defined.
   Definition mem_index (n : {n : nat | n < size}) : fin size := fin_n_m size n.
-  Definition get_nth_cell M (n : {n : nat | n < size}) : word :=
+  Definition get_nth_cell M (n : {n : nat | n < size}) : word5 :=
     M (mem_index n).
-  Definition set_nth_cell M (n : {n : nat | n < size}) (w : word) : memory :=
+  Definition set_nth_cell M (n : {n : nat | n < size}) (w : word5) : memory :=
     (fun m : fin size => if fin_dec m (mem_index n) then w else M m).
 End MixMemory.
 
-(* Knuth uses ':' but we depart from this and get similar aesthetics
+(* [TODO: move to Types.v about fieldspec] Knuth uses ':' but we depart from this and get similar aesthetics
    by squinting at Coq's pair syntax *)
-Definition fieldspec : Type := {L : nat | L < 6} * {R : nat | R < 6}.
-Definition fieldspecToNat (F : fieldspec) : {n : nat | n < 64}.
-  refine (exist _ (let (L', R') := F
-                   in match L' with 
-                      | exist _ L _ =>
-                                    match R' with 
-                                    | exist _ R _ => 8 * L + R
-                                    end
-                      end) _).
-  unfold fieldspec in F.
-  destruct F.
-  destruct s, s0.
-  omega.
-Defined.
 
 Open Scope list_scope.
 
@@ -80,7 +69,7 @@ Inductive instruction : Type :=
 negating it using a negative sign, into a given register from a given
 memory address possibly augmented by the value in a given index
 register. *)
-| Load : sign -> reg -> address -> option reg -> option fieldspec -> instruction
+| Load : sign -> reg -> address -> option reg -> fieldspec -> instruction
 | Store : reg -> address -> option fieldspec -> instruction
 | StoreZero : address -> option fieldspec -> instruction
                                              
@@ -175,87 +164,79 @@ Inductive indexRegister : reg -> Prop :=
   | indexI6 : indexRegister rI6.
 
 Inductive instWf : instruction -> Prop :=
-| LoadWf : forall sign rDest from maybeIndex I maybeFieldspec,
-    (maybeIndex = Some(I) -> indexRegister I) ->
-    instWf (Load sign rDest from maybeIndex maybeFieldspec)
+| LoadWf : forall sign rDest from maybeIndex F,
+    (forall Ind, maybeIndex = Some(Ind) -> indexRegister Ind) ->
+    instWf (Load sign rDest from maybeIndex F)
 | HaltWf : instWf Hlt.
 
 (* For record updates *)
 Instance etaMachine : Settable _ := settable! mkMachine <r; f; m>.
 Import RecordSetNotations.
 
+Close Scope Z_scope.
+Open Scope nat_scope.
 
-Definition bits := list bit.
-Definition bitsFromZ (z : Z) (width : nat) : option (sign * bits) :=
-  let sign := match z with
-              | Z0 => true
-              | Zpos _ => true
-              | Zneg _ => false
-              end in
-  let fix helper (left : Z) (w : nat) (acc : bits) :=
-      match w with
-      | 0 => 
-      | S w' => 
-  
-
-
+Definition address_with_offset (a : address) (o : nat) : address.
+  unfold address.
+  destruct a as [a' Ha'].
+  refine (exist _ ((a' + o) mod size) _).
+  (* N.mod_lt: forall a b : N, b <> 0%N -> (a mod b < b)%N *)
+  Check Nat.mod_bound_pos.
+  eapply Nat.mod_bound_pos; abstract omega.
+Defined.
 
 Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : machine :=
   let (I, _) := I in 
   match I with
-  | Load sign rDest from maybeIndex maybeFieldspec =>
-    match (maybeIndex, maybeFieldspec) with
-    | (Some(I), Some(F)) =>
-      (* offset from by the value contained in I *)
-      let offset := indexToNat (getReg I) in
-    | (Some(I), None) => 
-    | (None, Some(F)) =>
-    | (None, None) => 
-      let fromVal := signedFromWord (get_nth_cell (m M) from)
-      in let newReg := setReg (r M) rDest fromVal
-         in M <| r := newReg |>
-    end.
-
-
-Compute (instDenote zeroMachine (exist _ Hlt _)).
-
-    match (maybeIndex, maybeFieldspec) with
-    | (Some(I), Some(F)) =>
-      (* offset from by the value contained in I *)
-      let offset := indexToNat (getReg I) in
-    | (Some(I), None) => 
-    | (None, Some(F)) =>
-    | (None, None) => 
-      let 
-        {| r := 
-             f := M.f;
-           m := M.m;
-        |}
-      | otherwise => M
-        end.
+  | Load sign rDest from maybeIndex F =>
+    let offsetFrom := (match maybeIndex with
+                       | Some(Ind) =>
+                         (* offset from by the value contained in I 
+             N.b. by the behavior of Z.to_nat, we treat negative offsets from I as 0. *)
+                         let o := Z.to_nat (getReg (r M) Ind) in
+                         address_with_offset from o
+                       | None => from
+                       end)
+    in let fromVal := fieldOf5 (get_nth_cell (m M) offsetFrom) (Zero, Five)
+       in let newReg := setReg (r M) rDest fromVal in
+    M <| r := newReg |>
+ | _ => M
+  end.
 
 Definition Halto : {I : instruction | instWf I}.
   econstructor.
   instantiate (1 := Hlt).
   auto.
   constructor.
-  Defined.
+Defined.
 
-Compute instDenote zeroMachine Halto.
+Search memory.
+Coercion of_Z5 : Z >-> word5.
+Coercion of_Z2 : Z >-> word2.
+Definition testMemory : memory.
+  refine(set_nth_cell zeroMemory (exist _ 420 _) 69%Z).
+  assert (size = 4000).
+  auto.
+  abstract omega.
+Defined.
 
-  in match I with
-     | (Load sign rDest from maybeIndex maybeFieldspec, _) =>
-       match (maybeIndex, maybeFieldspec) with
-       | (Some(I), Some(F)) =>
-         (* offset from by the value contained in I *)
-         let offset := indexToNat (getReg I) in
-       | (Some(I), None) => 
-       | (None, Some(F)) =>
-       | (None, None) => 
-         let 
-           {| r := 
-                f := M.f;
-              m := M.m;
-           |}
-         | otherwise => M
-           end.
+Definition testMachine : machine := zeroMachine <| m := testMemory |>.
+
+Definition testInst : {I : instruction | instWf I}.
+  refine (exist _ (Load true rA (exist _ 420 _) None (Zero, Five)) _).
+  Unshelve. 2: { 
+    assert (size = 4000). reflexivity. abstract omega.
+  }
+
+  eapply LoadWf.
+  intros.
+  inversion H.
+Defined.
+
+Print testInst.
+
+Definition testMachineResult : machine := instDenote testMachine testInst.
+
+Require Coq.extraction.Extraction.
+Extraction Language OCaml.
+Recursive Extraction testMachineResult.

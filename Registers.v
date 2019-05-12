@@ -1,6 +1,5 @@
-From RecordUpdate Require Import RecordSet.
+Require RecordUpdate. From RecordUpdate Require Import RecordSet.
 Require Import Types.
-Import MixShort MixWord. (* TODO: why doesn't Import Types.MixWord work? *)
 Require Import Coq.ZArith.BinIntDef Coq.ZArith.BinInt.
 Local Open Scope Z_scope.
 
@@ -13,9 +12,9 @@ Inductive reg : Type :=
     | rJ.
 
 Module Type Registers.
-  Context (registers : Type).
   Context (short : Type).
   Context (word : Type).
+  Context (registers : Type).
   Context (zeroRegisters : registers).
 
   Context (getReg : registers -> reg -> Z).
@@ -23,6 +22,9 @@ Module Type Registers.
 End Registers.
 
 Module MixRegisters : Registers.
+  Definition short : Type := word2.
+  Definition word : Type := word5.
+  
   (* Dumb coq bug: the kernel won't let you instantiate a parameter
      with an record type (nor with an inductive definition)
      directly. *)
@@ -60,14 +62,11 @@ Module MixRegisters : Registers.
                                }.
   Definition registers : Type := registers'.
 
-  Definition short : Type := short.
-  Definition word : Type := word.
-
   (* For record updates *)
   Instance etaRegisters : Settable _ := settable! mkRegisters <A; X; I1; I2; I3; I4; I5; I6; J>.
 
-  Let zero_short := shortFromZ 0.
-  Let zero_word := shortFromZ 0.
+  Let zero_short := of_Z2 0.
+  Let zero_word := of_Z5 0.
 
   Definition zeroRegisters : registers := {| A := zero_word;
                                              X := zero_word;
@@ -79,26 +78,27 @@ Module MixRegisters : Registers.
                                              I6 := zero_short;
                                              J := zero_short; |}.
 
-Print Registers.
+  Let signed5 := fun w => fieldOf5 w (Zero, Five).
+  Let signed2 := fun s => fieldOf2 s (Zero, Two).
+  Let unsigned2 := fun s => fieldOf2 s (One, Two).
 
-Print Word.
 Definition getReg (R : registers) (r : reg) : Z :=
   match r with
-  | rA => signedFromWord (A R)
-  | rX => signedFromWord (X R)
-  | rI1 => signedFromShort (I1 R)
-  | rI2 => signedFromShort (I2 R)
-  | rI3 => signedFromShort (I3 R)
-  | rI4 => signedFromShort (I4 R)
-  | rI5 => signedFromShort (I5 R)
-  | rI6 => signedFromShort (I6 R)
-  | rJ => unsignedFromShort (J R) (* per Knuth, the jump register does have a sign, but we always ignore it *)
+  | rA => signed5 (A R)
+  | rX => signed5 (X R)
+  | rI1 => signed2 (I1 R)
+  | rI2 => signed2 (I2 R)
+  | rI3 => signed2 (I3 R)
+  | rI4 => signed2 (I4 R)
+  | rI5 => signed2 (I5 R)
+  | rI6 => signed2 (I6 R)
+  | rJ => unsigned2 (J R) (* per Knuth, the jump register does have a sign, but we always ignore it *)
   end.
     
   Import RecordSetNotations.
   Definition setReg (R : registers) (r : reg) (z : Z) : registers :=
-    let w := wordFromZ z in
-    let s := shortFromZ z in 
+    let w := of_Z5 z in
+    let s := of_Z2 z in 
     match r with
     | rA => R <|A := w|>
     | rX => R <|X := w|>

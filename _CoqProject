@@ -1,1 +1,2 @@
 -R coq-record-update/src RecordUpdate
+-R coqutil/src CoqUtil
