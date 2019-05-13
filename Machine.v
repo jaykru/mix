@@ -1,5 +1,4 @@
 Require Import Omega.
-Require Import Finite.
 From RecordUpdate Require Import RecordSet.
 Require Import Types.
 Require Import Registers.
@@ -297,21 +296,25 @@ Definition myPreCondition (M : machine) : Prop := get_nth_cell (m M) 420 = Some(
 Definition myPostCondition (M : machine) : Prop := A (r M) = 69%Z.
 Definition myProgram := Seq testInst Done.
 
+(* want something like this but it doesn't do quite what I want. *)
+Ltac unfurlProgram P :=
+  match P with
+  | Seq ?i ?P' => try unfold i; unfurlProgram P'
+  | Done => idtac P
+  end.
+
+Ltac byCompute :=
+  match goal with
+  | [  |- triple ?P ?C ?Q] => unfold P; unfold C; unfold Q; unfold triple; unfold programDenote; unfold instDenote; intuition
+  end.
+
 Goal triple myPreCondition myProgram myPostCondition.
-  unfold triple.
-  unfold myPreCondition.
-  intuition.
-  unfold myProgram in *.
-  unfold programDenote in *.
-  unfold instDenote in *.
+  byCompute.
   unfold testInst in *.
   rewrite H in *.
   simpl in *.
   inversion H0; subst.
-  unfold myPostCondition.
-  simpl.
-  compute.
-  trivial.
+  auto.
 Defined.
 
 Definition prettyPrintMemory (M : memory) : option (list word5) :=

@@ -1,4 +1,3 @@
-Require Import Finite.
 Require Import Omega.
 Require Import List.
 Import ListNotations.
