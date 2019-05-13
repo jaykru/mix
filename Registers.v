@@ -11,17 +11,17 @@ Inductive reg : Type :=
     (* jump register *)
     | rJ.
 
-Module Type Registers.
-  Context (short : Type).
-  Context (word : Type).
-  Context (registers : Type).
-  Context (zeroRegisters : registers).
+(* Module Type Registers. *)
+(*   Context (short : Type). *)
+(*   Context (word : Type). *)
+(*   Context (registers : Type). *)
+(*   Context (zeroRegisters : registers). *)
 
-  Context (getReg : registers -> reg -> Z).
-  Context (setReg : registers -> reg -> Z -> registers).
-End Registers.
+(*   Context (getReg : registers -> reg -> Z). *)
+(*   Context (setReg : registers -> reg -> Z -> registers). *)
+(* End Registers. *)
 
-Module MixRegisters : Registers.
+Module MixRegisters (* : Registers *).
   Definition short : Type := word2.
   Definition word : Type := word5.
   

@@ -4,7 +4,7 @@ From RecordUpdate Require Import RecordSet.
 Require Import Types.
 Require Import Registers.
 
-Inductive bit : Type := zero | one.
+Open Scope list_scope.
 
 Record flags : Type := mkFlags 
                          {
@@ -17,51 +17,47 @@ Record flags : Type := mkFlags
                               depending on the outcome of an
                               arithmetic instruction *)
                            ; overflow : bit
+                           (* Departure from Knuth: we add a flag for error conditions and halting *)
+                           ; halt : bit
                          }.
 
-Definition zeroFlags : flags := {| comparison := Eq;
-                                   overflow := zero; |}.
+Definition zeroFlags : flags := {|
+                                 comparison := Eq
+                                 ; overflow := zero
+                                 ; halt := zero
+                               |}.
 
 
 (* In keeping with Knuth, we use a 4000-word memory *)
 Definition size : nat := 4000.
-Context (Hsizenontrivial : size > 0).
+(* Context (Hsizenontrivial : size > 0). *)
 
-Definition address : Type := {n : nat | n < size}.
+(* Definition address : Type := {n : nat | n < size}. *)
 
-Module Type Memory.
-  Context (memory : Type).
-  Context (zeroMemory : memory).
-  Context (HMemNontrivial : size > 0).
-  Context (get_nth_cell : memory -> {n : nat | n < size} -> word5).
-  Context (set_nth_cell : memory -> {n : nat | n < size} -> word5 -> memory).
-  Notation " M [ n ] " := (get_nth_cell M n) (at level 50).
-End Memory.
+(* Module Type Memory. *)
+(*   Context (memory : Type). *)
+(*   Context (zeroMemory : memory). *)
+(*   (* Context (HMemNontrivial : size > 0). *) *)
+(*   Context (get_nth_cell : memory -> nat -> option word5). *)
+(*   Context (set_nth_cell : memory -> nat -> word5 -> option memory). *)
+(*   Context (good_get : forall (M : memory) (n : nat) (H : n < size), word5). *)
+(*   Context (get_set : forall (M : memory) (n : nat) (H : n < size) (w : word5), memory). *)
+(*   Notation " M [ n ] " := (get_nth_cell M n) (at level 50). *)
+(* End Memory. *)
 
-Module MixMemory : Memory.
-  (* Each MIX machine has a 4000-word memory. We represent this in
-     Coq as a finite map from a type with 4000 inhabitants to words. *)
-  Definition memory := fin size -> word5.
+Module MixMemory.
+  (* Each MIX machine has a 4000-word memory. We represent this in Coq as a morally-partial map (using an option type as our codomain) from nat to words. *)
+  Definition memory := nat -> option word5.
   Let zero_word := of_Z5 0.
-  Definition zeroMemory : memory := fun n => zero_word.
-  Definition HMemNontrivial : size > 0.
-    exact Hsizenontrivial.
-  Defined.
-  Definition mem_index (n : {n : nat | n < size}) : fin size := fin_n_m size n.
-  Definition get_nth_cell M (n : {n : nat | n < size}) : word5 :=
-    M (mem_index n).
-  Definition set_nth_cell M (n : {n : nat | n < size}) (w : word5) : memory :=
-    (fun m : fin size => if fin_dec m (mem_index n) then w else M m).
+  Definition zeroMemory : memory := fun n => if Nat.ltb n size then Some(zero_word) else None.
+  Definition get_nth_cell (M : memory) n : option word5 := M n.
+  Definition set_nth_cell M (n : nat) (w : word5) : option memory :=
+    if Nat.ltb n size then Some(fun m : nat => if Nat.eqb m n then Some(w) else M m) else None.
 End MixMemory.
-
-(* [TODO: move to Types.v about fieldspec] Knuth uses ':' but we depart from this and get similar aesthetics
-   by squinting at Coq's pair syntax *)
-
-Open Scope list_scope.
 
 Import MixRegisters.
 
-Definition sign := bool.
+Definition address := nat.
 
 Inductive instruction : Type :=
 (** * Loads and stores *)
@@ -176,16 +172,22 @@ Import RecordSetNotations.
 Close Scope Z_scope.
 Open Scope nat_scope.
 
-Definition address_with_offset (a : address) (o : nat) : address.
-  unfold address.
-  destruct a as [a' Ha'].
-  refine (exist _ ((a' + o) mod size) _).
-  (* N.mod_lt: forall a b : N, b <> 0%N -> (a mod b < b)%N *)
-  Check Nat.mod_bound_pos.
-  eapply Nat.mod_bound_pos; abstract omega.
-Defined.
+(* Definition address_with_offset (a : address) (o : nat) : address. *)
+(*   unfold address. *)
+(*   destruct a as [a' Ha']. *)
+(*   refine (exist _ ((a' + o) mod size) _). *)
+(*   (* N.mod_lt: forall a b : N, b <> 0%N -> (a mod b < b)%N *) *)
+(*   Check Nat.mod_bound_pos. *)
+(*   eapply Nat.mod_bound_pos; abstract omega. *)
+(* Defined. *)
 
-Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : machine :=
+Require Import ExtLib.Data.Monads.OptionMonad.
+Require Import ExtLib.Structures.Monad.
+Import MonadNotation.
+Open Scope monad_scope.
+Print ExtLib.Structures.Monad.
+
+Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : option machine :=
   let (I, _) := I in 
   match I with
   | Load sign rDest from maybeIndex F =>
@@ -194,14 +196,25 @@ Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : machine
                          (* offset from by the value contained in I 
              N.b. by the behavior of Z.to_nat, we treat negative offsets from I as 0. *)
                          let o := Z.to_nat (getReg (r M) Ind) in
-                         address_with_offset from o
+                         (from + o) mod size
                        | None => from
                        end)
-    in let fromVal := fieldOf5 (get_nth_cell (m M) offsetFrom) (Zero, Five)
-       in let newReg := setReg (r M) rDest fromVal in
-    M <| r := newReg |>
- | _ => M
+    in fromWord <- (get_nth_cell (m M) offsetFrom);;
+       let fromVal := fieldOf5 fromWord (Zero, Five)
+             in let newReg := setReg (r M) rDest fromVal in
+                Some(M <| r := newReg |>)
+  | _ => Some(M)
   end.
+ (*    let fromWord := (get_nth_cell (m M) offsetFrom) in *)
+ (*    match fromWord with *)
+ (*    | Some(w) =>  *)
+ (*             let fromVal := fieldOf5 w (Zero, Five) *)
+ (*             in let newReg := setReg (r M) rDest fromVal in *)
+ (*                Some(M <| r := newReg |>) *)
+ (*    | None => None *)
+ (*    end *)
+ (* | _ => Some(M) *)
+ (*  end. *)
 
 Definition Halto : {I : instruction | instWf I}.
   econstructor.
@@ -214,29 +227,102 @@ Search memory.
 Coercion of_Z5 : Z >-> word5.
 Coercion of_Z2 : Z >-> word2.
 Definition testMemory : memory.
-  refine(set_nth_cell zeroMemory (exist _ 420 _) 69%Z).
-  assert (size = 4000).
-  auto.
-  abstract omega.
+  (pose (set_nth_cell zeroMemory 420 69%Z)).
+  compute in *.
+  exact (fun m : nat =>
+          if
+           (fix eqb (n m0 : nat) {struct n} : bool :=
+              match n with
+              | 0 => match m0 with
+                     | 0 => true
+                     | S _ => false
+                     end
+              | S n' => match m0 with
+                        | 0 => false
+                        | S m' => eqb n' m'
+                        end
+              end) m 420
+          then Some 69%Z
+          else
+           if
+            (fix leb (n m0 : nat) {struct n} : bool := match n with
+                                                       | 0 => true
+                                                       | S n' => match m0 with
+                                                                 | 0 => false
+                                                                 | S m' => leb n' m'
+                                                                 end
+                                                       end) m 3999
+           then Some 0%Z
+           else None).
 Defined.
 
 Definition testMachine : machine := zeroMachine <| m := testMemory |>.
 
 Definition testInst : {I : instruction | instWf I}.
-  refine (exist _ (Load true rA (exist _ 420 _) None (Zero, Five)) _).
-  Unshelve. 2: { 
-    assert (size = 4000). reflexivity. abstract omega.
-  }
-
+  refine (exist _ (Load plus rA 420 None (Zero, Five)) _).
   eapply LoadWf.
-  intros.
+  intuition.
   inversion H.
 Defined.
 
 Print testInst.
 
-Definition testMachineResult : machine := instDenote testMachine testInst.
+Goal (forall M, (instDenote testMachine testInst = Some(M)) 
+           ->
+           (A (r M)) = 69%Z).
+  intuition.
+  compute in *.
+  inversion H.
+  trivial.
+Defined.
+
+Inductive program : Type :=
+| Seq : {I : instruction | instWf I} -> program -> program
+| Done : program.
+
+Fixpoint programDenote (M : machine) (P : program) : option machine :=
+  match P with
+  | Seq i P' => 
+    M' <- instDenote M i;;
+    Mstar <- programDenote M' P';;
+    ret Mstar
+  | Done => 
+    ret M
+  end.
+
+Definition triple (P : machine -> Prop) (C : program) (Q : machine -> Prop) :=
+  forall (Start : machine), P Start -> forall M', Some(M') = programDenote Start C -> Q M'.
+
+Definition myPreCondition (M : machine) : Prop := get_nth_cell (m M) 420 = Some(69%Z).
+Definition myPostCondition (M : machine) : Prop := A (r M) = 69%Z.
+Definition myProgram := Seq testInst Done.
+
+Goal triple myPreCondition myProgram myPostCondition.
+  unfold triple.
+  unfold myPreCondition.
+  intuition.
+  unfold myProgram in *.
+  unfold programDenote in *.
+  unfold instDenote in *.
+  unfold testInst in *.
+  rewrite H in *.
+  simpl in *.
+  inversion H0; subst.
+  unfold myPostCondition.
+  simpl.
+  compute.
+  trivial.
+Defined.
+
+Definition prettyPrintMemory (M : memory) : option (list word5) :=
+  let fix do (s : nat) :=
+      match s with
+      | S s' => v <- (M s);;
+               vs <- do s';;
+               ret (v :: vs) 
+      | 0 => Some(nil)
+      end
+  in do (size - 1).
 
 Require Coq.extraction.Extraction.
 Extraction Language OCaml.
-Recursive Extraction testMachineResult.

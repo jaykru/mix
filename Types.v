@@ -3,7 +3,12 @@ Require Import Omega.
 Require Import List.
 Import ListNotations.
 
+Inductive bit : Type := zero | one.
+
 Inductive field : Type := Zero | One | Two | Three | Four | Five.
+
+(* Knuth uses ':' but we depart from this and get similar aesthetics
+   by squinting at Coq's pair syntax *)
 Definition fieldspec : Type := field * field.
 
 Notation " 0 " := Zero : fieldspec_scope.
@@ -25,28 +30,20 @@ Definition fieldToNat (f : field) : nat :=
 
 Coercion fieldToNat : field >-> nat.
 Import Nat.
-Compute (compare Zero One).
-
 
 Delimit Scope fieldspec_scope with fieldspec.
 
 Inductive sign : Type := plus | minus.
 
-Ltac easy_subset n :=
-  refine (exist _ n _); try omega; auto.
-
-Definition _word : {n : nat | n > 0} -> {n : nat | n > 0} -> Type := fun _ _ => Z.
+Definition _word : nat -> nat -> Type := fun _ _ => Z.
 
 Section withWidth.
   (* Parameterize operations on words over number of bits per byte and number of bytes per word. We will stay faithful to Knuth with 6-bit bytes and 5-byte words. *)
-  Context (byteWidth : {n : nat | n > 0}).
-  Context (wordWidth : {n : nat | n > 0}).
-  Let byteWrap := let (bw, _) := byteWidth in
-                  (2 ^ (Z.of_nat bw))%Z.
-  Let wordWrap := let (bw,_) := byteWidth in
-              let (ww,_) := wordWidth in
-              let (b,w) := (Z.of_nat bw, Z.of_nat ww) in
-              (2 ^ (b*w))%Z.
+  Context (byteWidth wordWidth : nat).
+  
+  Let byteWrap := (2 ^ (Z.of_nat byteWidth))%Z.
+  Let wordWrap :=  let (b,w) := (Z.of_nat byteWidth, Z.of_nat wordWidth) in
+                   (2 ^ (b*w))%Z.
 
   Open Scope Z_scope.
   Definition word : Type := _word byteWidth wordWidth.
@@ -145,14 +142,11 @@ Section withWidth.
     end.
 End withWidth.
 
-Definition _6 : {n : nat | n > 0}. easy_subset 6. Defined.
-Definition _5 : {n : nat | n > 0}. easy_subset 5. Defined.
-Definition _2 : {n : nat | n > 0}. easy_subset 2. Defined.
-Notation word5 := (word _6 _5).
-Notation word2 := (word _6 _2).
+Notation word5 := (word 6 5).
+Notation word2 := (word 6 2).
 
-Definition of_Z5 : Z -> word5 := of_Z _6 _5.
-Definition of_Z2 : Z -> word2 := of_Z _6 _2.
+Definition of_Z5 : Z -> word5 := of_Z 6 5.
+Definition of_Z2 : Z -> word2 := of_Z 6 2.
 
-Definition fieldOf5 : word5 -> fieldspec -> Z := fieldOf _6 _5.
-Definition fieldOf2 : word2 -> fieldspec -> Z := fieldOf _6 _2.
+Definition fieldOf5 : word5 -> fieldspec -> Z := fieldOf 6 5.
+Definition fieldOf2 : word2 -> fieldspec -> Z := fieldOf 6 2.
