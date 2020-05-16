@@ -29,23 +29,11 @@ Definition zeroFlags : flags := {|
 
 (* In keeping with Knuth, we use a 4000-word memory *)
 Definition size : nat := 4000.
-(* Context (Hsizenontrivial : size > 0). *)
-
-(* Definition address : Type := {n : nat | n < size}. *)
-
-(* Module Type Memory. *)
-(*   Context (memory : Type). *)
-(*   Context (zeroMemory : memory). *)
-(*   (* Context (HMemNontrivial : size > 0). *) *)
-(*   Context (get_nth_cell : memory -> nat -> option word5). *)
-(*   Context (set_nth_cell : memory -> nat -> word5 -> option memory). *)
-(*   Context (good_get : forall (M : memory) (n : nat) (H : n < size), word5). *)
-(*   Context (get_set : forall (M : memory) (n : nat) (H : n < size) (w : word5), memory). *)
-(*   Notation " M [ n ] " := (get_nth_cell M n) (at level 50). *)
-(* End Memory. *)
 
 Module MixMemory.
-  (* Each MIX machine has a 4000-word memory. We represent this in Coq as a morally-partial map (using an option type as our codomain) from nat to words. *)
+  (* Each MIX machine has a 4000-word memory. We represent this in Coq
+  as a morally-partial map (using an option type as our codomain) from
+  nat to words. *)
   Definition memory := nat -> option word5.
   Let zero_word := of_Z5 0.
   Definition zeroMemory : memory := fun n => if Nat.ltb n size then Some(zero_word) else None.
@@ -162,7 +150,8 @@ Inductive instWf : instruction -> Prop :=
 | LoadWf : forall sign rDest from maybeIndex F,
     (forall Ind, maybeIndex = Some(Ind) -> indexRegister Ind) ->
     instWf (Load sign rDest from maybeIndex F)
-| HaltWf : instWf Hlt.
+| HaltWf : instWf Hlt
+| NopWf : instWf Nop.
 
 (* For record updates *)
 Instance etaMachine : Settable _ := settable! mkMachine <r; f; m>.
@@ -171,22 +160,13 @@ Import RecordSetNotations.
 Close Scope Z_scope.
 Open Scope nat_scope.
 
-(* Definition address_with_offset (a : address) (o : nat) : address. *)
-(*   unfold address. *)
-(*   destruct a as [a' Ha']. *)
-(*   refine (exist _ ((a' + o) mod size) _). *)
-(*   (* N.mod_lt: forall a b : N, b <> 0%N -> (a mod b < b)%N *) *)
-(*   Check Nat.mod_bound_pos. *)
-(*   eapply Nat.mod_bound_pos; abstract omega. *)
-(* Defined. *)
-
 Require Import ExtLib.Data.Monads.OptionMonad.
 Require Import ExtLib.Structures.Monad.
 Import MonadNotation.
 Open Scope monad_scope.
 Print ExtLib.Structures.Monad.
 
-Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : option machine :=
+Definition runInst (M : machine) (I : {I : instruction | instWf I}) : option machine :=
   let (I, _) := I in 
   match I with
   | Load sign rDest from maybeIndex F =>
@@ -202,18 +182,10 @@ Definition instDenote (M : machine) (I : {I : instruction | instWf I}) : option 
        let fromVal := fieldOf5 fromWord (Zero, Five)
              in let newReg := setReg (r M) rDest fromVal in
                 Some(M <| r := newReg |>)
+
+  | Nop => Some(M)
   | _ => Some(M)
   end.
- (*    let fromWord := (get_nth_cell (m M) offsetFrom) in *)
- (*    match fromWord with *)
- (*    | Some(w) =>  *)
- (*             let fromVal := fieldOf5 w (Zero, Five) *)
- (*             in let newReg := setReg (r M) rDest fromVal in *)
- (*                Some(M <| r := newReg |>) *)
- (*    | None => None *)
- (*    end *)
- (* | _ => Some(M) *)
- (*  end. *)
 
 Definition Halto : {I : instruction | instWf I}.
   econstructor.
@@ -222,7 +194,6 @@ Definition Halto : {I : instruction | instWf I}.
   constructor.
 Defined.
 
-Search memory.
 Coercion of_Z5 : Z >-> word5.
 Coercion of_Z2 : Z >-> word2.
 Definition testMemory : memory.
@@ -266,7 +237,7 @@ Defined.
 
 Print testInst.
 
-Goal (forall M, (instDenote testMachine testInst = Some(M)) 
+Goal (forall M, (runInst testMachine testInst = Some(M)) 
            ->
            (A (r M)) = 69%Z).
   intuition.
@@ -279,18 +250,18 @@ Inductive program : Type :=
 | Seq : {I : instruction | instWf I} -> program -> program
 | Done : program.
 
-Fixpoint programDenote (M : machine) (P : program) : option machine :=
+Fixpoint runProgram (M : machine) (P : program) : option machine :=
   match P with
   | Seq i P' => 
-    M' <- instDenote M i;;
-    Mstar <- programDenote M' P';;
+    M' <- runInst M i;;
+    Mstar <- runProgram M' P';;
     ret Mstar
   | Done => 
     ret M
   end.
 
 Definition triple (P : machine -> Prop) (C : program) (Q : machine -> Prop) :=
-  forall (Start : machine), P Start -> forall M', Some(M') = programDenote Start C -> Q M'.
+  forall (Start : machine), P Start -> forall M', Some(M') = runProgram Start C -> Q M'.
 
 Definition myPreCondition (M : machine) : Prop := get_nth_cell (m M) 420 = Some(69%Z).
 Definition myPostCondition (M : machine) : Prop := A (r M) = 69%Z.
@@ -305,7 +276,7 @@ Ltac unfurlProgram P :=
 
 Ltac byCompute :=
   match goal with
-  | [  |- triple ?P ?C ?Q] => unfold P; unfold C; unfold Q; unfold triple; unfold programDenote; unfold instDenote; intuition
+  | [  |- triple ?P ?C ?Q] => unfold P; unfold C; unfold Q; unfold triple; unfold runProgram; unfold runInst; intuition
   end.
 
 Goal triple myPreCondition myProgram myPostCondition.
@@ -317,6 +288,8 @@ Goal triple myPreCondition myProgram myPostCondition.
   auto.
 Defined.
 
+Notation "{{ P }} C {{ Q }}" :=  (triple P C Q) (at level 50).
+
 Definition prettyPrintMemory (M : memory) : option (list word5) :=
   let fix do (s : nat) :=
       match s with
@@ -327,5 +300,38 @@ Definition prettyPrintMemory (M : memory) : option (list word5) :=
       end
   in do (size - 1).
 
+Definition doNothing: program.
+  refine (Seq (exist _ Nop _) Done); econstructor.
+Defined.
+
+
+(* Axiom of Hoare logic, but we can prove it *)
+Theorem empty_statement: forall P,
+    {{P}} doNothing {{P}}.
+  intro.
+  unfold doNothing.
+  unfold triple.
+  intros.
+  simpl in *.
+  injection H0.
+  intro.
+  subst.
+  auto.
+Defined.
+
+Fixpoint comp (S T: program): program :=
+  match S with
+  | Done => Done
+  | Seq s' s'' => Seq s' (comp s'' T)
+  end.
+
+Notation " S ;; T " := (comp S T).
+
+Axiom seqComp: forall P Q R (S T: program),
+    {{P}} S {{Q}} ->
+    {{Q}} T {{R}} ->
+    {{P}} S ;; T {{R}}.
+
+        
 Require Coq.extraction.Extraction.
 Extraction Language OCaml.
